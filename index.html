@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Drawn-Frame Depth Test</title>
+<title>Drawn-Frame Hilltop</title>
 <style>
   :root { --bg:#f4efe6; --ink:#1d1a16; --muted:#6b6358; --card:#fffaf2; }
   @media (prefers-color-scheme: dark) { :root { --bg:#16140f; --ink:#f1ece2; --muted:#a89f92; --card:#221f19; } }
@@ -18,10 +18,11 @@
 </head>
 <body>
 <div id="info">
-  <h1>Drawn-Frame VR · Depth test</h1>
+  <h1>Drawn-Frame VR · Hilltop test</h1>
   <p>On Quest 3: tap <b>Enter VR</b> at the bottom. Put the controllers down to see your drawn hands.</p>
   <p><b>Pinch</b> (or pull the trigger) to switch between <b>Layered</b> and <b>Flat</b>. Flat puts every drawing on one distant backdrop, so you can feel what the layers add. Walk around inside the dashed circle.</p>
-  <p>On a computer: drag to look, WASD to walk, F to switch.</p>
+  <p>Walk toward the girl by the wall: she greets you, and steps back if you get too close.</p>
+  <p>On a computer: drag to look, WASD to walk, F to switch. <a href="art.html">Art sheet</a></p>
 </div>
 <div id="mode">Mode: Layered</div>
 
@@ -34,9 +35,9 @@
 <script type="module">
 import * as THREE from 'three';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
+import * as ART from './art.js';
 
-const INK = '#1b1410';
-const LINE = 6; // outline width on art canvases
+const INK = ART.INK;
 
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -50,7 +51,7 @@ document.body.appendChild(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer, { optionalFeatures: ['hand-tracking', 'local-floor', 'bounded-floor'] }));
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#bfe3f5');
+scene.background = new THREE.Color('#cfe6f7');
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.02, 400);
 const rig = new THREE.Group();          // moves in desktop mode
 rig.add(camera);
@@ -62,131 +63,38 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.set(-3, 6, 2);
 scene.add(sun);
 
-// ---------- canvas art helpers ----------
-function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
-function tex(c) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
-function inked(ctx, fill, w = LINE) { ctx.fillStyle = fill; ctx.fill(); ctx.lineWidth = w; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke(); }
-function blob(ctx, x, y, r) { ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2); }
+// ---------- art (all drawn by art.js in one consistent style) ----------
+function tex(c) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; }
 
-function skyTexture() {
-  const [c, x] = makeCanvas(2048, 1024);
-  const g = x.createLinearGradient(0, 0, 0, 1024);
-  g.addColorStop(0, '#3f86d6'); g.addColorStop(0.42, '#8fcbf0'); g.addColorStop(0.5, '#fbe9cf'); g.addColorStop(1, '#fbe9cf');
-  x.fillStyle = g; x.fillRect(0, 0, 2048, 1024);
-  // clouds: soft white piles with thin ink
-  const rnd = mulberry(7);
-  for (let i = 0; i < 18; i++) {
-    const cx = rnd() * 2048, cy = 330 + rnd() * 110, s = 10 + rnd() * 14;
-    x.beginPath();
-    for (let k = 0; k < 6; k++) blob(x, cx + (k - 2.5) * s * 0.9, cy - Math.sin(k / 5 * Math.PI) * s * 0.8, s * (0.7 + rnd() * 0.5));
-    x.fillStyle = '#ffffff'; x.fill();
-    x.lineWidth = 2; x.strokeStyle = 'rgba(70,110,160,.45)'; x.stroke();
-  }
-  return tex(c);
-}
-
-function mountainTexture() {
-  const [c, x] = makeCanvas(2048, 512);
-  const rnd = mulberry(3);
-  const ridge = (base, amp, col, seedStep) => {
-    x.beginPath(); x.moveTo(0, 512);
-    let y = base;
-    for (let px = 0; px <= 2048; px += 32) { y = base - amp * (0.5 + 0.5 * Math.sin(px / 180 + seedStep) * Math.cos(px / 97)) - rnd() * 20; x.lineTo(px, y); }
-    x.lineTo(2048, 512); x.closePath();
-    inked(x, col, 4);
-  };
-  ridge(300, 220, '#9ab0d8', 1);
-  ridge(380, 140, '#7d97c4', 4);
-  ridge(450, 70, '#6f9b77', 2);
-  return tex(c);
-}
-
-function treeArt() {
-  const [c, x] = makeCanvas(512, 768);
-  x.beginPath(); x.moveTo(230, 760); x.lineTo(240, 470); x.lineTo(272, 470); x.lineTo(285, 760); x.closePath(); inked(x, '#8a5a3b');
-  x.beginPath(); blob(x, 256, 300, 170); blob(x, 150, 380, 110); blob(x, 362, 380, 110); blob(x, 256, 170, 120); inked(x, '#4f9a4a');
-  x.beginPath(); blob(x, 200, 250, 50); blob(x, 300, 330, 40); x.fillStyle = '#76c26a'; x.fill();
-  return tex(c);
-}
-
-function houseArt() {
-  const [c, x] = makeCanvas(768, 768);
-  x.beginPath(); x.rect(120, 330, 528, 420); inked(x, '#f3e4c8');
-  x.beginPath(); x.moveTo(80, 350); x.lineTo(384, 90); x.lineTo(688, 350); x.closePath(); inked(x, '#c9574a');
-  x.beginPath(); x.rect(330, 560, 108, 190); inked(x, '#7a4e33');
-  for (const wx of [180, 500]) { x.beginPath(); x.rect(wx, 430, 90, 90); inked(x, '#9fd3ef'); x.beginPath(); x.moveTo(wx + 45, 430); x.lineTo(wx + 45, 520); x.moveTo(wx, 475); x.lineTo(wx + 90, 475); x.lineWidth = 4; x.stroke(); }
-  return tex(c);
-}
-
-function characterArt() {
-  // original placeholder figure: traveler in a short cape
-  const [c, x] = makeCanvas(512, 1024);
-  x.beginPath(); x.moveTo(205, 1010); x.lineTo(215, 700); x.lineTo(245, 700); x.lineTo(248, 1010); x.closePath(); inked(x, '#3a3f5c');
-  x.beginPath(); x.moveTo(265, 1010); x.lineTo(268, 700); x.lineTo(298, 700); x.lineTo(308, 1010); x.closePath(); inked(x, '#3a3f5c');
-  x.beginPath(); x.moveTo(170, 720); x.lineTo(195, 420); x.quadraticCurveTo(256, 380, 318, 420); x.lineTo(342, 720); x.closePath(); inked(x, '#2f6f8f');
-  x.beginPath(); x.moveTo(190, 430); x.lineTo(130, 760); x.lineTo(256, 700); x.lineTo(382, 760); x.lineTo(322, 430); x.closePath(); inked(x, '#e0e6ee');
-  x.beginPath(); x.ellipse(256, 300, 92, 105, 0, 0, Math.PI * 2); inked(x, '#ffe0c7');
-  // hair
-  x.beginPath(); x.moveTo(160, 310); x.quadraticCurveTo(150, 170, 256, 180); x.quadraticCurveTo(370, 175, 352, 320);
-  x.lineTo(330, 250); x.lineTo(300, 290); x.lineTo(275, 235); x.lineTo(240, 285); x.lineTo(210, 240); x.lineTo(185, 300); x.closePath(); inked(x, '#4a3328');
-  // eyes
-  for (const ex of [222, 290]) { x.beginPath(); x.ellipse(ex, 318, 13, 20, 0, 0, Math.PI * 2); x.fillStyle = INK; x.fill(); x.beginPath(); blob(x, ex + 4, 310, 5); x.fillStyle = '#fff'; x.fill(); }
-  x.beginPath(); x.moveTo(246, 365); x.quadraticCurveTo(256, 372, 266, 365); x.lineWidth = 4; x.strokeStyle = INK; x.stroke();
-  return tex(c);
-}
-
-function grassArt() {
-  const [c, x] = makeCanvas(512, 256);
-  const rnd = mulberry(11);
-  for (let i = 0; i < 26; i++) {
-    const bx = 20 + rnd() * 470, h = 90 + rnd() * 140, lean = (rnd() - 0.5) * 70;
-    x.beginPath(); x.moveTo(bx - 9, 256); x.quadraticCurveTo(bx + lean * 0.3, 256 - h * 0.6, bx + lean, 256 - h); x.quadraticCurveTo(bx + lean * 0.3 + 6, 256 - h * 0.5, bx + 9, 256); x.closePath();
-    inked(x, i % 3 ? '#5fae4e' : '#7cc864', 4);
-  }
-  return tex(c);
-}
-
-function fenceArt() {
-  const [c, x] = makeCanvas(1024, 256);
-  x.beginPath(); x.rect(0, 60, 1024, 34); inked(x, '#b9834f');
-  x.beginPath(); x.rect(0, 140, 1024, 30); inked(x, '#b9834f');
-  for (let px = 40; px < 1024; px += 190) { x.beginPath(); x.rect(px, 30, 40, 226); inked(x, '#a06d3f'); }
-  return tex(c);
-}
-
-function groundTexture() {
-  const [c, x] = makeCanvas(1024, 1024);
-  x.fillStyle = '#86c46e'; x.fillRect(0, 0, 1024, 1024);
-  const rnd = mulberry(5);
-  for (let i = 0; i < 260; i++) { const px = rnd() * 1024, py = rnd() * 1024; x.beginPath(); x.moveTo(px, py); x.lineTo(px + 6, py - 14); x.moveTo(px + 8, py); x.lineTo(px + 14, py - 10); x.lineWidth = 3; x.strokeStyle = '#5f9e4f'; x.stroke(); }
-  const t = tex(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(30, 30); return t;
-}
-
-function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-
-// ---------- far layer ----------
-const sky = new THREE.Mesh(new THREE.SphereGeometry(180, 48, 24), new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, fog: false }));
+// far layer: sky dome + mountain ring with the distant castle
+const skyTex = tex(ART.sky()); skyTex.generateMipmaps = false; skyTex.minFilter = THREE.LinearFilter;
+const sky = new THREE.Mesh(new THREE.SphereGeometry(180, 64, 32), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide }));
 scene.add(sky);
-const mtnTex = mountainTexture(); mtnTex.wrapS = THREE.RepeatWrapping; mtnTex.repeat.set(3, 1);
-const mountains = new THREE.Mesh(new THREE.CylinderGeometry(120, 120, 36, 96, 1, true), new THREE.MeshBasicMaterial({ map: mtnTex, side: THREE.BackSide, transparent: true, alphaTest: 0.4 }));
-mountains.position.y = 14;
+const mtnTex = tex(ART.mountains()); mtnTex.wrapS = THREE.RepeatWrapping; mtnTex.generateMipmaps = false; mtnTex.minFilter = THREE.LinearFilter; // no seam line
+const mountains = new THREE.Mesh(new THREE.CylinderGeometry(120, 120, 30, 128, 1, true), new THREE.MeshBasicMaterial({ map: mtnTex, side: THREE.BackSide, transparent: true, alphaTest: 0.4 }));
+mountains.position.y = 11;
 scene.add(mountains);
 
-// ground (stays put in both modes)
-const ground = new THREE.Mesh(new THREE.CircleGeometry(170, 64), new THREE.MeshBasicMaterial({ map: groundTexture() }));
+// ground with a dirt path running down toward the town
+const groundTex = tex(ART.ground()); groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping; groundTex.repeat.set(40, 40);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(170, 64), new THREE.MeshBasicMaterial({ map: groundTex }));
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
+const pathTex = tex(ART.pathTexture()); pathTex.wrapT = THREE.RepeatWrapping; pathTex.repeat.set(1, 8);
+const path = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 40), new THREE.MeshBasicMaterial({ map: pathTex }));
+path.rotation.x = -Math.PI / 2; path.position.set(0.6, 0.005, -21);
+scene.add(path);
 
 // roaming circle (3 m radius), dashed
 const dash = new THREE.Group();
 for (let i = 0; i < 48; i += 2) {
   const a0 = i / 48 * Math.PI * 2, a1 = (i + 1) / 48 * Math.PI * 2;
-  const seg = new THREE.Mesh(new THREE.RingGeometry(2.97, 3.03, 4, 1, a0, a1 - a0), new THREE.MeshBasicMaterial({ color: 0xfff6df, transparent: true, opacity: 0.8 }));
+  const seg = new THREE.Mesh(new THREE.RingGeometry(2.97, 3.03, 4, 1, a0, a1 - a0), new THREE.MeshBasicMaterial({ color: 0xfff6df, transparent: true, opacity: 0.7 }));
   seg.rotation.x = -Math.PI / 2; seg.position.y = 0.01; dash.add(seg);
 }
 scene.add(dash);
 
-// ---------- drawn planes (billboards) ----------
+// drawn planes (billboards)
 const billboards = [];
 function addCard(texture, w, h, x, z, layer, faceViewer = true) {
   const geo = new THREE.PlaneGeometry(w, h); geo.translate(0, h / 2, 0);
@@ -196,17 +104,24 @@ function addCard(texture, w, h, x, z, layer, faceViewer = true) {
   scene.add(m); billboards.push(m);
   return m;
 }
-const T = { tree: treeArt(), house: houseArt(), hero: characterArt(), grass: grassArt(), fence: fenceArt() };
+const T = { treeA: tex(ART.tree(1)), treeB: tex(ART.tree(7)), house: tex(ART.house(0)), houseBlue: tex(ART.house(1)), tower: tex(ART.tower()), grass: tex(ART.grass(11)), grass2: tex(ART.grass(23)), fence: tex(ART.fence()) };
 
-// middle layer
-addCard(T.tree, 4, 6, -9, -14, 'mid'); addCard(T.tree, 3.4, 5.1, 7, -18, 'mid'); addCard(T.tree, 4.4, 6.6, 15, -6, 'mid');
-addCard(T.tree, 3.6, 5.4, -16, 4, 'mid'); addCard(T.tree, 4, 6, 4, 14, 'mid'); addCard(T.tree, 3, 4.5, -6, 12, 'mid');
-addCard(T.house, 6, 6, -2, -22, 'mid'); addCard(T.house, 5, 5, 18, -16, 'mid');
-const hero = addCard(T.hero, 0.85, 1.7, 1.6, -4.5, 'mid');
+// middle layer: a small town below the hill, trees around
+addCard(T.house, 6, 6, -5, -24, 'mid'); addCard(T.houseBlue, 5.5, 5.5, 4.5, -27, 'mid'); addCard(T.tower, 4, 8.8, 0, -32, 'mid');
+addCard(T.houseBlue, 5, 5, -12, -30, 'mid'); addCard(T.house, 5, 5, 11, -22, 'mid');
+addCard(T.treeA, 4.2, 5.9, -9, -14, 'mid'); addCard(T.treeB, 3.6, 5.1, 8, -15, 'mid'); addCard(T.treeA, 4.6, 6.5, 15, -5, 'mid');
+addCard(T.treeB, 3.8, 5.3, -16, 4, 'mid'); addCard(T.treeA, 4.2, 5.9, 5, 14, 'mid'); addCard(T.treeB, 3.2, 4.5, -7, 12, 'mid');
+addCard(T.treeA, 3.6, 5.1, 18, 9, 'mid'); addCard(T.treeB, 4, 5.6, -20, -8, 'mid');
+
+// the character: one canvas, redrawn by code as her pose changes
+const heroCanvas = ART.character(null, ART.POSES.idle);
+const heroTex = tex(heroCanvas);
+const hero = addCard(heroTex, 0.9, 1.8, 1.6, -4.2, 'mid');
+
 // near layer
-addCard(T.grass, 1.2, 0.6, -1.2, -1.8, 'near'); addCard(T.grass, 1.0, 0.5, 1.8, -1.2, 'near'); addCard(T.grass, 1.1, 0.55, 0.4, 2.0, 'near');
-addCard(T.grass, 0.9, 0.45, -2.2, 0.6, 'near'); addCard(T.grass, 1.0, 0.5, 2.4, 1.6, 'near');
-const fence = addCard(T.fence, 4, 1, -0.5, -3.4, 'near', false);
+addCard(T.grass, 1.3, 0.65, -1.2, -1.8, 'near'); addCard(T.grass2, 1.1, 0.55, 1.8, -1.2, 'near'); addCard(T.grass, 1.2, 0.6, 0.4, 2.0, 'near');
+addCard(T.grass2, 1.0, 0.5, -2.2, 0.6, 'near'); addCard(T.grass, 1.1, 0.55, 2.4, 1.6, 'near'); addCard(T.grass2, 1.0, 0.5, -0.4, -2.6, 'near');
+addCard(T.fence, 4.2, 1.08, -0.8, -3.3, 'near', false);
 
 // ---------- flat / layered toggle ----------
 let flat = false;
@@ -227,7 +142,7 @@ function toggleMode() { flat = !flat; applyMode(); }
 // ---------- hands: live 3D with toon shading + ink outline ----------
 const gradient = new THREE.DataTexture(new Uint8Array([90, 90, 90, 255, 190, 190, 190, 255, 255, 255, 255, 255]), 3, 1, THREE.RGBAFormat);
 gradient.minFilter = gradient.magFilter = THREE.NearestFilter; gradient.needsUpdate = true;
-const skinMat = new THREE.MeshToonMaterial({ color: '#ffd9bd', gradientMap: gradient });
+const skinMat = new THREE.MeshToonMaterial({ color: ART.PAL.skin, gradientMap: gradient });
 const inkMat = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
 const OUT = 0.0028; // outline thickness in metres; geometry based, so both eyes agree
 
@@ -326,6 +241,33 @@ applyMode();
 if (params.has('pitch')) pitch = parseFloat(params.get('pitch'));
 window.__dbg = { scene, ground, dash, billboards };
 
+// ---------- character behaviour ----------
+// Code only moves and blends her existing drawing: eyes follow you, she blinks,
+// greets you when you come near and flinches if you get too close.
+const heroState = { look: { x: 0, y: 0 }, mood: 'idle', moodT: 0, blinkAt: 2, wave: 0, lastKey: '' };
+const toHero = new THREE.Vector3();
+function updateHero(t, dt) {
+  const hp = hero.position;
+  toHero.set(camPos.x - hp.x, camPos.y - (hp.y + 1.55 * hero.scale.y), camPos.z - hp.z);
+  const dist = Math.hypot(toHero.x, toHero.z);
+  // eyes: the card always faces you, so "look at you" is the centre; add a slight lag
+  const tx = THREE.MathUtils.clamp(-toHero.x * 0.0, -1, 1), ty = THREE.MathUtils.clamp(-toHero.y / Math.max(dist, 0.5) * 1.2, -1, 1);
+  heroState.look.x += (tx - heroState.look.x) * Math.min(1, dt * 6);
+  heroState.look.y += (ty - heroState.look.y) * Math.min(1, dt * 6);
+  const mood = flat ? 'idle' : dist < 1.0 ? 'flinch' : dist < 2.6 ? 'greet' : 'idle';
+  if (mood !== heroState.mood) { heroState.mood = mood; heroState.moodT = 0; }
+  heroState.moodT += dt;
+  let blink = 0;
+  if (t > heroState.blinkAt) { blink = 1; if (t > heroState.blinkAt + 0.12) heroState.blinkAt = t + 2 + Math.random() * 3; }
+  const pose = { ...ART.POSES[heroState.mood === 'greet' && heroState.moodT > 2.5 ? 'idle' : heroState.mood], look: { x: heroState.look.x, y: heroState.look.y }, blink };
+  if (heroState.mood === 'greet' && heroState.moodT <= 2.5) pose.armWave = t * 9;
+  pose.hairSway = Math.sin(t * 1.3) * 0.5;
+  // anime-style "on twos": redraw her at 12 fps while head tracking stays at full rate
+  const frame = Math.floor(t * 12);
+  const key = frame + JSON.stringify(pose.mouth) + heroState.mood + blink;
+  if (key !== heroState.lastKey) { heroState.lastKey = key; ART.character(heroCanvas, pose); heroTex.needsUpdate = true; }
+}
+
 // ---------- loop ----------
 const clock = new THREE.Clock();
 const camPos = new THREE.Vector3();
@@ -351,6 +293,7 @@ renderer.setAnimationLoop(() => {
   }
   // ambient sway on near grass (code moves existing art, never redraws it)
   for (const b of billboards) if (b.userData.layer === 'near' && b.userData.face) b.rotation.z = Math.sin(t * 1.6 + b.userData.home.x) * 0.04;
+  updateHero(t, dt);
   hands.forEach((h, i) => updateHandRig(handRigs[i], h));
   renderer.render(scene, camera);
 });

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Drawn-Frame Art Sheet</title>
+<style>
+:root{--bg:#eef3f8;--fg:#1e2430;--muted:#5d6878;--card:#ffffff}
+@media (prefers-color-scheme:dark){:root{--bg:#141a22;--fg:#e8edf4;--muted:#9aa6b6;--card:#1d2530}}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px max(16px,env(safe-area-inset-left))}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:28px 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+p{color:var(--muted);margin:0;max-width:65ch}
+.row{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+figure{margin:0;background:var(--card);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;align-items:center}
+figure.check{background-image:linear-gradient(45deg,#0001 25%,transparent 25%,transparent 75%,#0001 75%),linear-gradient(45deg,#0001 25%,transparent 25%,transparent 75%,#0001 75%);background-size:20px 20px;background-position:0 0,10px 10px;background-color:var(--card)}
+figcaption{font-size:12px;color:var(--muted)}
+canvas{max-width:100%;height:auto}
+</style></head><body>
+<h1>Drawn-Frame art sheet</h1>
+<p>Every piece is drawn by code from one palette and one set of line rules, so the style stays the same everywhere. The character poses are the key frames the scene blends between.</p>
+<h2>Far layer</h2><div class="row" id="far"></div>
+<h2>Middle layer</h2><div class="row" id="mid"></div>
+<h2>Near layer</h2><div class="row" id="near"></div>
+<h2>Character key poses</h2><div class="row" id="char"></div>
+<script type="module">
+import * as A from './art.js';
+const add=(id,c,cap,w)=>{const f=document.createElement('figure');f.className='check';c.style.width=w+'px';f.append(c);const fc=document.createElement('figcaption');fc.textContent=cap;f.append(fc);document.getElementById(id).append(f);};
+const s=A.sky(); const sc=A.canvas(4096,1100); sc.getContext('2d').drawImage(s,0,0); sc.getContext('2d').drawImage(A.mountains(),0,1100-768,4096,768);
+add('far',sc,'Sky and distant mountains with castle (wraps around you)',1000);
+add('mid',A.tree(1),'Tree',150);add('mid',A.tree(7),'Tree variant',150);add('mid',A.house(0),'House',200);add('mid',A.house(1),'House, blue roof',200);add('mid',A.tower(),'Clock tower',110);
+add('near',A.grass(11),'Grass and flowers',260);add('near',A.fence(),'Stone wall',420);
+for(const [n,p] of Object.entries(A.POSES)) add('char',A.character(null,p),n,150);
+add('char',A.character(null,{look:{x:1,y:0},mouth:'smile'}),'eyes following you',150);
+</script></body></html>
