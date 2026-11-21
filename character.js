@@ -56,7 +56,10 @@ function limbPath(x, ax, ay, bx, by, wa, wb) {
 }
 function rot(px, py, cx, cy, a) { const c = Math.cos(a), s = Math.sin(a); return [cx + (px - cx) * c - (py - cy) * s, cy + (px - cx) * s + (py - cy) * c]; }
 
-export const DEFAULT_POSE = { look: { x: 0, y: 0 }, mouth: 'smile', brows: 'soft', arm: 0, armWave: 0, flinch: 0, blink: 0, blush: 0.35, hairSway: 0 };
+export const DEFAULT_POSE = { look: { x: 0, y: 0 }, mouth: 'smile', brows: 'soft', arm: 0, armWave: 0, flinch: 0, blink: 0, blush: 0.35, hairSway: 0,
+  // continuous controls used by the animation engine
+  armL: 0, bendL: 0, bendR: 0, breathe: 0, shift: 0, headTilt: 0, mouthOpen: 0, held: null, magic: 0,
+  yaw: 0 }; // yaw: -1..1 radians, how far she is turned from the viewer (2.5D turn)
 
 export function character(c, pose = {}) {
   const p = { ...DEFAULT_POSE, ...pose, look: { ...DEFAULT_POSE.look, ...(pose.look || {}) } };
@@ -65,6 +68,9 @@ export function character(c, pose = {}) {
   x.clearRect(0, 0, c.width, c.height);
   x.save(); x.scale(c.width / 640, c.height / 1280);
   const sway = p.hairSway * 8;
+  const Y = Math.max(-1, Math.min(1, p.yaw)), S = Math.sin(Y), AS = Math.abs(S);
+  // 2.5D turn: parts shift sideways by their depth, widths narrow with the angle
+  const squash = (k, cx = 320) => { x.translate(cx, 0); x.scale(1 - k * AS, 1); x.translate(-cx, 0); };
 
   // ---------- back hair (behind everything) ----------
   const backHair = () => {
@@ -73,8 +79,11 @@ export function character(c, pose = {}) {
     for (const [tx, ty] of tips) x.lineTo(tx + sway * (ty - 400) / 140, ty);
     x.bezierCurveTo(440, 330, 440, 160, 390, 70); x.closePath();
   };
+  x.save(); x.translate(-S * 50, 0); squash(0.2);
   x.beginPath(); backHair(); const hg = x.createLinearGradient(0, 60, 0, 540); hg.addColorStop(0, C.hairB); hg.addColorStop(1, C.hairC); fillP(x, hg);
   x.beginPath(); backHair(); line(x, L.hair, 3.5);
+  x.restore();
+  x.save(); squash(0.22); x.translate(S * 4, 0);
 
   // ---------- legs ----------
   const lean = p.flinch * 0.07;
@@ -97,7 +106,8 @@ export function character(c, pose = {}) {
     part(x, foot, C.boot, C.boot2, null, L.out, 3.5, s);
   }
 
-  x.save(); x.translate(320, 560); x.rotate(-lean); x.translate(-320, -560);
+  x.restore();
+  x.save(); x.translate(320, 560); x.rotate(-lean + p.shift * 0.03); x.translate(-320, -560 - p.breathe * 5); squash(0.18);
 
   // ---------- coat skirt (open front) ----------
   const skirt = () => { x.moveTo(268, 450); x.bezierCurveTo(240, 560, 200, 680, 190, 790); x.quadraticCurveTo(250, 770, 300, 800); x.lineTo(310, 560); x.lineTo(330, 560); x.lineTo(340, 800); x.quadraticCurveTo(390, 770, 450, 790); x.bezierCurveTo(440, 680, 400, 560, 372, 450); x.closePath(); };
@@ -111,15 +121,19 @@ export function character(c, pose = {}) {
   part(x, () => { x.moveTo(282, 520); x.lineTo(358, 520); x.lineTo(366, 600); x.lineTo(322, 610); x.lineTo(274, 600); x.closePath(); }, C.navy, C.navy2, null, L.cloth, 3);
 
   // ---------- sword at the hip ----------
+  x.save(); x.translate(-S * 40, 0);
   part(x, () => { x.moveTo(394, 520); x.lineTo(410, 516); x.lineTo(470, 820); x.lineTo(456, 826); x.closePath(); }, C.navy, C.navy2, null, L.out, 3);
   part(x, () => x.rect(380, 500, 44, 12), C.gold, C.gold2, null, L.out, 2.5);
   part(x, () => x.rect(394, 470, 14, 34), C.leather, C.leather2, null, L.out, 2.5);
+  x.restore();
 
   // ---------- torso ----------
   const torso = () => { x.moveTo(236, 246); x.quadraticCurveTo(320, 226, 404, 246); x.bezierCurveTo(400, 330, 372, 400, 368, 452); x.lineTo(380, 540); x.quadraticCurveTo(320, 556, 260, 540); x.lineTo(272, 452); x.bezierCurveTo(268, 400, 240, 330, 236, 246); x.closePath(); };
   part(x, torso, C.coat, C.coat2, C.coat3, L.cloth, 3.5);
   // under-bust shading line and waist folds
   x.beginPath(); x.moveTo(266, 372); x.quadraticCurveTo(290, 390, 316, 384); x.moveTo(330, 384); x.quadraticCurveTo(352, 392, 374, 372); line(x, C.coat3, 2.5);
+  // front of the torso sits nearest the viewer, so it shifts most
+  x.save(); x.translate(S * 30, 0);
   // navy front panel with gold trim
   part(x, () => { x.moveTo(300, 250); x.lineTo(340, 250); x.lineTo(334, 540); x.lineTo(306, 540); x.closePath(); }, C.navy, C.navy2, null, L.cloth, 3);
   x.beginPath(); x.moveTo(300, 250); x.lineTo(306, 540); x.moveTo(340, 250); x.lineTo(334, 540); line(x, C.gold, 4);
@@ -130,6 +144,7 @@ export function character(c, pose = {}) {
   // belt
   part(x, () => { x.moveTo(262, 452); x.quadraticCurveTo(320, 470, 378, 452); x.lineTo(380, 482); x.quadraticCurveTo(320, 500, 260, 482); x.closePath(); }, C.leather, C.leather2, null, L.out, 3);
   part(x, () => x.rect(306, 458, 28, 30), C.gold, C.gold2, null, L.out, 2.5);
+  x.restore();
   // pauldrons / shoulder capes
   for (const s of [-1, 1]) {
     const sx = 320 + s * 88;
@@ -138,12 +153,12 @@ export function character(c, pose = {}) {
   }
 
   // ---------- arms ----------
-  const arm = (s, raise, wave) => {
+  const arm = (s, raise, wave, bendExtra = 0) => {
     const sx = 320 + s * 92, sy = 268;
     const a0 = s * 0.12 - s * raise * 2.5 + s * Math.sin(wave) * 0.22 * raise - s * p.flinch * 0.55;
     const ex = sx + Math.sin(-a0) * 168 * -1 * -1, ey = sy + Math.cos(a0) * 168;
     const [ex2, ey2] = [sx - Math.sin(a0) * 168, sy + Math.cos(a0) * 168];
-    const bend = -s * raise * 0.55 + s * p.flinch * 2.1;
+    const bend = -s * raise * 0.55 + s * p.flinch * 2.1 + s * bendExtra;
     const a1 = a0 + bend;
     const wx = ex2 - Math.sin(a1) * 150, wy = ey2 + Math.cos(a1) * 150;
     // sleeve upper arm
@@ -156,33 +171,51 @@ export function character(c, pose = {}) {
     const hx = wx - Math.sin(a1) * 26, hy = wy + Math.cos(a1) * 26;
     part(x, () => x.ellipse(hx, hy, 17, 24, a1, 0, Math.PI * 2), C.glove, '#27233a', null, L.out, 3, s);
     part(x, () => x.ellipse(hx + s * 14 * Math.cos(a1), hy + s * 14 * Math.sin(a1) - 6, 6, 12, a1 + s * 0.6, 0, Math.PI * 2), C.glove, null, null, L.out, 2.5, s);
+    return [hx, hy];
   };
-  arm(-1, 0, 0);
-  arm(1, p.arm, p.armWave);
+  arm(-1, p.armL, 0, p.bendL);
+  const [rhx, rhy] = arm(1, p.arm, p.armWave, p.bendR);
+  // magic glow and a held item in the right hand
+  if (p.magic > 0.01) {
+    x.save(); x.globalCompositeOperation = 'lighter';
+    const g = x.createRadialGradient(rhx, rhy - 40, 0, rhx, rhy - 40, 110); g.addColorStop(0, `rgba(255,240,190,${0.8 * p.magic})`); g.addColorStop(0.4, `rgba(160,210,255,${0.35 * p.magic})`); g.addColorStop(1, 'rgba(120,180,255,0)');
+    x.fillStyle = g; x.fillRect(rhx - 120, rhy - 160, 240, 240);
+    x.fillStyle = `rgba(255,255,255,${p.magic})`;
+    for (let k = 0; k < 7; k++) { const a = k * 0.9 + p.magic * 6, d = 50 + (k % 3) * 18; const sx2 = rhx + Math.cos(a) * d, sy2 = rhy - 40 + Math.sin(a) * d * 0.7; x.beginPath(); x.moveTo(sx2, sy2 - 9); x.lineTo(sx2 + 2.5, sy2); x.lineTo(sx2, sy2 + 9); x.lineTo(sx2 - 2.5, sy2); x.closePath(); x.fill(); x.beginPath(); x.moveTo(sx2 - 9, sy2); x.lineTo(sx2, sy2 + 2.5); x.lineTo(sx2 + 9, sy2); x.lineTo(sx2, sy2 - 2.5); x.closePath(); x.fill(); }
+    x.restore();
+  }
+  if (p.held) { const sz = 170; x.drawImage(p.held, rhx - sz / 2, rhy - sz + 12, sz, sz); }
 
   // ---------- neck + collar ----------
+  x.save(); x.translate(S * 8, 0);
   part(x, () => { x.moveTo(304, 186); x.lineTo(336, 186); x.lineTo(340, 244); x.lineTo(300, 244); x.closePath(); }, C.skin, C.skin2, null, L.skin, 2.5);
   shade(x, () => { x.moveTo(304, 186); x.lineTo(336, 186); x.lineTo(340, 244); x.lineTo(300, 244); x.closePath(); }, 'rgba(0,0,0,0)', C.skin3, 0, -26);
   part(x, () => { x.moveTo(282, 232); x.lineTo(300, 222); x.lineTo(320, 258); x.lineTo(340, 222); x.lineTo(358, 232); x.lineTo(340, 272); x.lineTo(320, 262); x.lineTo(300, 272); x.closePath(); }, C.navy, C.navy2, null, L.cloth, 2.5);
   x.beginPath(); x.moveTo(300, 222); x.lineTo(320, 258); x.lineTo(340, 222); line(x, C.gold, 3);
+  x.restore();
 
   // ---------- head ----------
-  x.save(); x.translate(320, 200); x.rotate(-p.flinch * 0.1 + p.look.x * 0.04); x.translate(-320, -200);
+  x.save(); x.translate(320, 200); x.rotate(-p.flinch * 0.1 + p.look.x * 0.04 + p.headTilt); x.translate(-320, -200);
+  x.translate(S * 8, 0); squash(0.12);
   const face = () => { x.moveTo(258, 96); x.bezierCurveTo(258, 150, 270, 172, 296, 192); x.quadraticCurveTo(320, 208, 344, 192); x.bezierCurveTo(370, 172, 382, 150, 382, 96); x.bezierCurveTo(380, 40, 260, 40, 258, 96); };
   x.beginPath(); face(); fillP(x, C.skin);
   // hair shadow on forehead and side of face
   x.save(); x.beginPath(); face(); x.clip(); x.fillStyle = C.skin2; x.beginPath(); x.ellipse(320, 76, 80, 46, 0, 0, Math.PI * 2); x.fill(); x.beginPath(); x.moveTo(382, 80); x.quadraticCurveTo(366, 160, 344, 200); x.lineTo(400, 200); x.closePath(); x.fill(); x.restore();
   x.beginPath(); face(); line(x, L.skin, 3);
   // ears
-  for (const s of [-1, 1]) part(x, () => x.ellipse(320 + s * 63, 128, 9, 16, s * 0.15, 0, Math.PI * 2), C.skin, C.skin2, null, L.skin, 2.5, s);
+  for (const s of [-1, 1]) { if (s * S > 0.45) continue; part(x, () => x.ellipse(320 + s * 63 - S * 30 + (s * S < 0 ? s * AS * 6 : 0), 128, 9 * (1 - (s * S > 0 ? AS : 0)), 16, s * 0.15, 0, Math.PI * 2), C.skin, C.skin2, null, L.skin, 2.5, s); }
+  // facial features sit on the front of the face, so they slide most
+  x.save(); x.translate(S * 38, 0);
   // blush hatching
   if (p.blush > 0) { x.save(); x.globalAlpha = p.blush; for (const s of [-1, 1]) { const g = x.createRadialGradient(320 + s * 38, 158, 0, 320 + s * 38, 158, 18); g.addColorStop(0, C.blush); g.addColorStop(1, 'rgba(245,163,160,0)'); x.fillStyle = g; x.fillRect(320 + s * 38 - 20, 140, 40, 36); } x.restore(); x.beginPath(); for (const s of [-1, 1]) for (let k = -1; k <= 1; k++) { x.moveTo(320 + s * 38 + k * 7 + 2, 152); x.lineTo(320 + s * 38 + k * 7 - 2, 162); } line(x, '#e98c86', 1.5); }
 
   // eyes
   const open = 1 - p.blink, ey = 126;
   for (const s of [-1, 1]) {
-    const ex = 320 + s * 30;
-    if (open < 0.2) { x.beginPath(); x.moveTo(ex - 17, ey + 4); x.quadraticCurveTo(ex, ey + 12, ex + 17, ey + 4); line(x, L.out, 4); continue; }
+    const ex = 320 + s * 30 * (1 - 0.25 * AS);
+    const narrow = s * S > 0 ? 1 - 0.45 * AS : 1;
+    x.save(); x.translate(ex, ey); x.scale(narrow, 1); x.translate(-ex, -ey);
+    if (open < 0.2) { x.beginPath(); x.moveTo(ex - 17, ey + 4); x.quadraticCurveTo(ex, ey + 12, ex + 17, ey + 4); line(x, L.out, 4); x.restore(); continue; }
     const eh = 21 * open;
     const white = () => { x.moveTo(ex - 18, ey); x.quadraticCurveTo(ex - 4, ey - eh - 2, ex + 18 * s * 0 + 18, ey - eh * 0.6); x.quadraticCurveTo(ex + 20, ey + eh * 0.5, ex + 4, ey + eh * 0.9); x.quadraticCurveTo(ex - 14, ey + eh * 0.8, ex - 18, ey); };
     const wPath = () => x.ellipse(ex, ey, 19, eh, 0, 0, Math.PI * 2);
@@ -202,6 +235,7 @@ export function character(c, pose = {}) {
     x.beginPath(); x.moveTo(ex + s * 12, ey + eh * 0.85); x.quadraticCurveTo(ex + s * 2, ey + eh + 1, ex - s * 8, ey + eh * 0.85); line(x, L.skin, 1.5);
     // double-lid crease
     x.beginPath(); x.moveTo(ex - s * 10, ey - eh - 7); x.quadraticCurveTo(ex + s * 4, ey - eh - 10, ex + s * 16, ey - eh - 3); line(x, L.skin, 1.5);
+    x.restore();
   }
   // brows
   for (const s of [-1, 1]) {
@@ -211,11 +245,13 @@ export function character(c, pose = {}) {
   // nose + mouth
   x.beginPath(); x.moveTo(322, 150); x.lineTo(318, 158); line(x, L.skin, 2);
   x.beginPath();
-  if (p.mouth === 'smile') { x.moveTo(310, 176); x.quadraticCurveTo(320, 182, 330, 176); line(x, L.skin, 2.5); }
+  if (p.mouthOpen > 0.12 && p.mouth !== 'o') { const h = 4 + p.mouthOpen * 14; x.moveTo(309, 175); x.quadraticCurveTo(320, 175 + h * 1.6, 331, 175); x.closePath(); fillP(x, '#a5403c'); line(x, L.skin, 2.5); x.beginPath(); x.ellipse(320, 176 + h * 0.6, 5, Math.max(1, h * 0.25), 0, 0, Math.PI * 2); fillP(x, '#ee8c87'); }
+  else if (p.mouth === 'smile') { x.moveTo(310, 176); x.quadraticCurveTo(320, 182, 330, 176); line(x, L.skin, 2.5); }
   else if (p.mouth === 'flat') { x.moveTo(312, 178); x.lineTo(328, 178); line(x, L.skin, 2.5); }
   else if (p.mouth === 'open') { x.moveTo(308, 174); x.quadraticCurveTo(320, 194, 332, 174); x.closePath(); fillP(x, '#a5403c'); line(x, L.skin, 2.5); x.beginPath(); x.ellipse(320, 184, 6, 3, 0, 0, Math.PI * 2); fillP(x, '#ee8c87'); }
   else if (p.mouth === 'o') { x.ellipse(320, 179, 5, 7, 0, 0, Math.PI * 2); fillP(x, '#a5403c'); line(x, L.skin, 2.5); }
 
+  x.restore();
   // front hair: clumps of pointed strands, gradient, highlight band
   let OPEN = false;
   const clump = (rx, ry, tx, ty, w, bend) => { x.moveTo(rx + w, ry); x.quadraticCurveTo(rx + w + bend, (ry + ty) / 2, tx, ty); x.quadraticCurveTo(rx - w + bend, (ry + ty) / 2, rx - w, ry); if (!OPEN) x.closePath(); };
@@ -229,6 +265,7 @@ export function character(c, pose = {}) {
     clump(362, 52, 366 + sway, 142, 18, 8);
     clump(380, 60, 386 + sway, 210, 14, 10);
   };
+  x.save(); x.translate(S * 16, 0);
   x.beginPath(); fringePath(); const fg = x.createLinearGradient(0, 16, 0, 210); fg.addColorStop(0, C.hairA); fg.addColorStop(1, C.hairB); fillP(x, fg);
   shade(x, fringePath, 'rgba(0,0,0,0)', C.hairC, 14, 4);
   // highlight band: a row of short lighter strokes following the head's curve
@@ -241,6 +278,7 @@ export function character(c, pose = {}) {
   x.beginPath(); for (const [ax, ay, bx, by] of [[290, 60, 286, 120], [334, 56, 330, 112], [356, 60, 360, 120], [270, 70, 264, 160]]) { x.moveTo(ax, ay); x.quadraticCurveTo(ax - 2, (ay + by) / 2, bx + sway, by); } line(x, C.hairC, 1.5);
   // hair clip
   part(x, () => { x.moveTo(362, 84); x.lineTo(384, 78); x.lineTo(386, 88); x.lineTo(364, 94); x.closePath(); }, C.gold, C.gold2, null, L.out, 2);
+  x.restore(); // fringe shift
   x.restore(); // head
 
   x.restore(); // lean

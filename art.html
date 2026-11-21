@@ -19,8 +19,11 @@ canvas{max-width:100%;height:auto}
 <h2>Middle layer</h2><div class="row" id="mid"></div>
 <h2>Near layer</h2><div class="row" id="near"></div>
 <h2>Character key poses</h2><div class="row" id="char"></div>
+<h2>Turning: redrawn live for the viewing angle</h2><div class="row" id="turn"></div>
+<h2>Generated items (a new one each time she makes one)</h2><div class="row" id="items"></div>
 <script type="module">
 import * as A from './art.js';
+import { generateItem } from './items.js';
 const add=(id,c,cap,w)=>{const f=document.createElement('figure');f.className='check';c.style.width=w+'px';f.append(c);const fc=document.createElement('figcaption');fc.textContent=cap;f.append(fc);document.getElementById(id).append(f);};
 const s=A.sky(); const sc=A.canvas(4096,1100); sc.getContext('2d').drawImage(s,0,0); sc.getContext('2d').drawImage(A.mountains(),0,1100-768,4096,768);
 add('far',sc,'Sky and distant mountains with castle (wraps around you)',1000);
@@ -29,4 +32,6 @@ add('mid',K(A.tree(1)),'Tree',150);add('mid',K(A.tree(7)),'Tree variant',150);ad
 add('near',K(A.grass(11),{glow:.6}),'Grass and flowers',260);add('near',K(A.fence(),{rimWidth:6}),'Stone wall',420);
 for(const [n,p] of Object.entries(A.POSES)) add('char',K(A.character(null,p),{rimWidth:6,rim:.6}),n,150);
 add('char',K(A.character(null,{look:{x:1,y:0},mouth:'smile'}),{rimWidth:6,rim:.6}),'eyes following you',150);
+for (const y of [-0.9,-0.45,0,0.45,0.9]) add('turn',K(A.character(null,{yaw:y,look:{x:-y*0.9,y:0}}),{rimWidth:6,rim:.6}),'turned '+Math.round(y*57)+'°',130);
+for (let s=1;s<=12;s++){ const g=generateItem(s*31); add('items',g.canvas,g.kind,96); }
 </script></body></html>

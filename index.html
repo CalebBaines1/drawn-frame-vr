@@ -21,7 +21,7 @@
   <h1>Drawn-Frame VR · Hilltop test</h1>
   <p>On Quest 3: tap <b>Enter VR</b> at the bottom. Put the controllers down to see your drawn hands.</p>
   <p><b>Pinch</b> (or pull the trigger) to switch between <b>Layered</b> and <b>Flat</b>. Flat puts every drawing on one distant backdrop, so you can feel what the layers add. Walk around inside the dashed circle.</p>
-  <p>Walk toward the girl by the wall: she greets you, and steps back if you get too close.</p>
+  <p>Walk toward the girl by the wall: she greets you, then makes new items and sets them on the wall. Walk around her and the items: they are redrawn live for your angle. Get too close and she steps back.</p>
   <p>On a computer: drag to look, WASD to walk, F to switch. <a href="art.html">Art sheet</a></p>
 </div>
 <div id="mode">Mode: Layered</div>
@@ -36,6 +36,7 @@
 import * as THREE from 'three';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import * as ART from './art.js';
+import { generateItem } from './items.js';
 
 const INK = ART.INK;
 
@@ -255,33 +256,124 @@ if (params.has('yaw')) yaw = parseFloat(params.get('yaw'));
 if (params.get('flat') === '1') flat = true;
 applyMode();
 if (params.has('pitch')) pitch = parseFloat(params.get('pitch'));
-window.__dbg = { scene, ground, dash, billboards };
+window.__dbg = { scene, ground, dash, billboards, rig, items: () => items, hs: () => hs };
 
-// ---------- character behaviour ----------
-// Code only moves and blends her existing drawing: eyes follow you, she blinks,
-// greets you when you come near and flinches if you get too close.
-const heroState = { look: { x: 0, y: 0 }, mood: 'idle', moodT: 0, blinkAt: 2, wave: 0, lastKey: '' };
+// ---------- animation engine ----------
+// Nothing here is pre-drawn animation. Every frame (on twos, 12 fps like TV
+// anime) the engine works out her pose from continuous controls and draws a
+// brand-new image of her for the angle you are looking from. Items she makes
+// are generated from a seed and redrawn as they turn.
+const lerp = THREE.MathUtils.lerp, clamp = THREE.MathUtils.clamp;
+const cur = { arm: 0, armL: 0, bendR: 0, bendL: 0, flinch: 0, magic: 0, mouthOpen: 0, headTilt: 0, shift: 0, breathe: 0, lookX: 0, lookY: 0, blush: 0.35 };
+const hs = { facing: 0, phase: 'idle', phaseT: 0, greeted: false, lastMake: -10, blinkAt: 2, item: null, frame: -1, seed: 1, talkUntil: 0 };
 const toHero = new THREE.Vector3();
+const items = [];
+const SLOTS = [-2.4, -1.75, -1.1, -0.45, 0.2, 0.85];
+const itemGeo = new THREE.PlaneGeometry(0.34, 0.34);
+
+function makeItemCard(gen) {
+  const c = ART.canvas(256, 256), t = tex(c);
+  const m = new THREE.Mesh(itemGeo, new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide }));
+  m.userData = { gen, c, t, spin: Math.random() * 6, slot: 0, flyT: 0, from: new THREE.Vector3(), to: new THREE.Vector3(), lastFrame: -1 };
+  scene.add(m);
+  return m;
+}
+// draw an item for its current turn angle: narrows with the angle, back side
+// mirrored and shaded, highlight sliding across: a flat image rendered live at an angle
+function drawItemAngle(card, frame) {
+  const u = card.userData; if (u.lastFrame === frame) return; u.lastFrame = frame;
+  const g = u.c.getContext('2d'), k = Math.cos(u.spin), w = Math.max(0.08, Math.abs(k));
+  g.clearRect(0, 0, 256, 256);
+  g.save(); g.translate(128, 0); g.scale(k < 0 ? -w : w, 1); g.translate(-128, 0); g.drawImage(u.gen.canvas, 0, 0); g.restore();
+  g.save(); g.globalCompositeOperation = 'source-atop';
+  if (k < 0) { g.fillStyle = 'rgba(40,40,90,0.25)'; g.fillRect(0, 0, 256, 256); }
+  const sx = 128 + Math.sin(u.spin) * 90; const sg = g.createLinearGradient(sx - 30, 0, sx + 30, 0); sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(0.5, 'rgba(255,255,240,0.35)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = sg; g.fillRect(0, 0, 256, 256); g.restore();
+  u.t.needsUpdate = true;
+}
+function setPhase(ph) { hs.phase = ph; hs.phaseT = 0; }
+
 function updateHero(t, dt) {
   const hp = hero.position;
   toHero.set(camPos.x - hp.x, camPos.y - (hp.y + 1.55 * hero.scale.y), camPos.z - hp.z);
   const dist = Math.hypot(toHero.x, toHero.z);
-  // eyes: the card always faces you, so "look at you" is the centre; add a slight lag
-  const tx = THREE.MathUtils.clamp(-toHero.x * 0.0, -1, 1), ty = THREE.MathUtils.clamp(-toHero.y / Math.max(dist, 0.5) * 1.2, -1, 1);
-  heroState.look.x += (tx - heroState.look.x) * Math.min(1, dt * 6);
-  heroState.look.y += (ty - heroState.look.y) * Math.min(1, dt * 6);
-  const mood = flat ? 'idle' : dist < 1.0 ? 'flinch' : dist < 2.6 ? 'greet' : 'idle';
-  if (mood !== heroState.mood) { heroState.mood = mood; heroState.moodT = 0; }
-  heroState.moodT += dt;
+  // she turns toward you with a lag; the gap is the angle she's drawn at
+  const viewAng = Math.atan2(toHero.x, toHero.z);
+  let d = viewAng - hs.facing; d = Math.atan2(Math.sin(d), Math.cos(d));
+  hs.facing += clamp(d, -1, 1) * Math.min(1, dt * 0.9);
+  let yaw = hs.facing - viewAng; yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+  if (flat) yaw = 0;
+
+  // behaviour
+  hs.phaseT += dt;
+  const near = !flat && dist < 3.8;
+  if (!flat && dist < 1.0 && hs.phase !== 'flinch') setPhase('flinch');
+  if (hs.phase === 'flinch' && dist > 1.3 && hs.phaseT > 0.6) setPhase('idle');
+  if (hs.phase === 'idle' && near && !hs.greeted && dist < 2.8) { hs.greeted = true; setPhase('greet'); hs.talkUntil = t + 1.6; }
+  if (hs.phase === 'greet' && hs.phaseT > 2.2) setPhase('idle');
+  if (hs.phase === 'idle' && hs.greeted && near && t - hs.lastMake > 6) { setPhase('conjure'); hs.lastMake = t; hs.item = null; }
+  if (hs.phase === 'conjure' && hs.phaseT > 1.6) { hs.item = generateItem(hs.seed++); setPhase('offer'); hs.talkUntil = t + 1.2; }
+  if (hs.phase === 'offer' && hs.phaseT > 1.8) { releaseItem(hs.item); hs.item = null; setPhase('idle'); }
+
+  // targets per phase
+  const tg = { arm: 0, armL: 0, bendR: 0, bendL: 0, flinch: 0, magic: 0, headTilt: Math.sin(t * 0.37) * 0.04, shift: Math.sin(t * 0.21), blush: 0.35 };
+  if (hs.phase === 'greet') { tg.arm = 1; tg.blush = 0.55; }
+  if (hs.phase === 'flinch') { tg.flinch = 1; tg.blush = 0.7; tg.headTilt = -0.05; }
+  if (hs.phase === 'conjure') { tg.arm = 0.3; tg.bendR = 1.7; tg.armL = 0.2; tg.bendL = 1.5; tg.magic = Math.min(1, hs.phaseT * 1.2); tg.headTilt = 0.06; }
+  if (hs.phase === 'offer') { tg.arm = 0.45; tg.bendR = 1.25; tg.magic = Math.max(0, 0.6 - hs.phaseT); tg.headTilt = 0.08; tg.blush = 0.5; }
+  for (const k in tg) cur[k] = lerp(cur[k], tg[k], Math.min(1, dt * (k === 'flinch' ? 12 : 5)));
+  cur.breathe = (Math.sin(t * 1.7) + 1) / 2;
+  const talking = t < hs.talkUntil;
+  cur.mouthOpen = talking ? Math.abs(Math.sin(t * 14)) * (0.6 + 0.4 * Math.sin(t * 3.1)) : lerp(cur.mouthOpen, 0, Math.min(1, dt * 10));
+  // eyes: always on you, with a slight lag; vertical from your height
+  const ty = clamp(-toHero.y / Math.max(dist, 0.5) * 1.2, -1, 1);
+  cur.lookY = lerp(cur.lookY, ty, Math.min(1, dt * 6));
+  cur.lookX = lerp(cur.lookX, clamp(-yaw * 0.9, -1, 1), Math.min(1, dt * 6));
   let blink = 0;
-  if (t > heroState.blinkAt) { blink = 1; if (t > heroState.blinkAt + 0.12) heroState.blinkAt = t + 2 + Math.random() * 3; }
-  const pose = { ...ART.POSES[heroState.mood === 'greet' && heroState.moodT > 2.5 ? 'idle' : heroState.mood], look: { x: heroState.look.x, y: heroState.look.y }, blink };
-  if (heroState.mood === 'greet' && heroState.moodT <= 2.5) pose.armWave = t * 9;
-  pose.hairSway = Math.sin(t * 1.3) * 0.5;
-  // anime-style "on twos": redraw her at 12 fps while head tracking stays at full rate
+  if (t > hs.blinkAt) { blink = 1; if (t > hs.blinkAt + 0.12) hs.blinkAt = t + 2 + Math.random() * 3; }
+
+  // on twos: a new drawing 12 times a second
   const frame = Math.floor(t * 12);
-  const key = frame + JSON.stringify(pose.mouth) + heroState.mood + blink;
-  if (key !== heroState.lastKey) { heroState.lastKey = key; ART.character(heroRaw, pose); paintHero(); heroTex.needsUpdate = true; }
+  if (frame !== hs.frame) {
+    hs.frame = frame;
+    const mouth = hs.phase === 'flinch' ? 'o' : hs.phase === 'conjure' ? 'flat' : 'smile';
+    const brows = hs.phase === 'flinch' ? 'worried' : (hs.phase === 'greet' || hs.phase === 'offer') ? 'up' : 'soft';
+    ART.character(heroRaw, {
+      look: { x: cur.lookX, y: cur.lookY }, mouth, brows, blink, blush: cur.blush,
+      arm: cur.arm, armWave: hs.phase === 'greet' ? t * 9 : 0, armL: cur.armL, bendR: cur.bendR, bendL: cur.bendL,
+      flinch: cur.flinch, magic: cur.magic, mouthOpen: cur.mouthOpen, headTilt: cur.headTilt, shift: cur.shift, breathe: cur.breathe,
+      hairSway: Math.sin(t * 1.3) * 0.5 + cur.shift * 0.3, yaw: clamp(yaw, -1, 1),
+      held: hs.phase === 'offer' && hs.item ? hs.item.canvas : null,
+    });
+    paintHero(); heroTex.needsUpdate = true;
+  }
+  updateItems(t, dt, frame);
+}
+
+function releaseItem(gen) {
+  if (!gen) return;
+  if (items.length >= SLOTS.length) { const old = items.shift(); scene.remove(old); old.material.map.dispose(); old.material.dispose(); }
+  const used = new Set(items.map(m => m.userData.slot));
+  const slot = SLOTS.findIndex((_, i) => !used.has(i));
+  const card = makeItemCard(gen);
+  const u = card.userData; u.slot = slot;
+  u.from.set(hero.position.x + 0.25, 1.3, hero.position.z + 0.15);
+  u.to.set(SLOTS[slot], 1.32, -3.3);
+  card.position.copy(u.from);
+  items.push(card);
+}
+function updateItems(t, dt, frame) {
+  for (const m of items) {
+    const u = m.userData;
+    u.flyT = Math.min(1, u.flyT + dt / 1.2);
+    const e = u.flyT < 1 ? 1 - Math.pow(1 - u.flyT, 3) : 1;
+    m.position.lerpVectors(u.from, u.to, e);
+    m.position.y += Math.sin(e * Math.PI) * 0.5 + Math.sin(t * 1.6 + u.slot) * 0.03;
+    // each item turns slowly in place: redrawn for its angle, while the card itself faces you
+    u.spin += dt * 0.9;
+    m.rotation.y = Math.atan2(camPos.x - m.position.x, camPos.z - m.position.z);
+    drawItemAngle(m, frame);
+  }
 }
 
 // ---------- loop ----------
