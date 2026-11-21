@@ -70,8 +70,8 @@ export function mountains() {
   const ridge = (base, amp, k, col, shade, seed) => {
     // whole numbers of waves around the circle so the ring has no seam
     const pts = [];
-    for (let px = 0; px <= W; px += 24) { const th = px / W * Math.PI * 2; pts.push(px, base - amp * (0.55 + 0.45 * Math.sin(th * k + seed) * Math.cos(th * (k * 2 - 1) + seed * 2)) - 8 * Math.sin(th * k * 9)); }
-    const path = () => { x.moveTo(0, 768); for (let i = 0; i < pts.length; i += 2) x.lineTo(pts[i], pts[i + 1]); x.lineTo(W, 768); x.closePath(); };
+    for (let px = -48; px <= W + 48; px += 24) { const th = px / W * Math.PI * 2; pts.push(px, base - amp * (0.55 + 0.45 * Math.sin(th * k + seed) * Math.cos(th * (k * 2 - 1) + seed * 2)) - 8 * Math.sin(th * k * 9)); }
+    const path = () => { x.moveTo(-48, 768); for (let i = 0; i < pts.length; i += 2) x.lineTo(pts[i], pts[i + 1]); x.lineTo(W + 48, 768); x.closePath(); };
     x.beginPath(); path(); fill(x, col);
     if (shade) celShade(x, path, shade, 26, 18);
     x.beginPath(); for (let i = 0; i < pts.length; i += 2) (i ? x.lineTo : x.moveTo).call(x, pts[i], pts[i + 1]); x.lineWidth = 3; x.strokeStyle = 'rgba(42,28,24,.35)'; x.stroke();
