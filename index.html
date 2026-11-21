@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Drawn-Frame Depth Test</title>
+<style>
+  :root { --bg:#f4efe6; --ink:#1d1a16; --muted:#6b6358; --card:#fffaf2; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16140f; --ink:#f1ece2; --muted:#a89f92; --card:#221f19; } }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; overflow:hidden; }
+  canvas { display:block; }
+  #info { position:absolute; top:16px; left:16px; right:16px; max-width:440px; background:var(--card); border-radius:12px; padding:14px 16px; box-shadow:0 2px 12px rgba(0,0,0,.15); font-size:14px; line-height:1.45; }
+  #info h1 { font-size:17px; margin:0 0 6px; }
+  #info p { margin:6px 0; color:var(--muted); }
+  #info b { color:var(--ink); }
+  #mode { position:absolute; bottom:80px; left:50%; transform:translateX(-50%); background:var(--card); padding:6px 12px; border-radius:20px; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="info">
+  <h1>Drawn-Frame VR · Depth test</h1>
+  <p>On Quest 3: tap <b>Enter VR</b> at the bottom. Put the controllers down to see your drawn hands.</p>
+  <p><b>Pinch</b> (or pull the trigger) to switch between <b>Layered</b> and <b>Flat</b>. Flat puts every drawing on one distant backdrop, so you can feel what the layers add. Walk around inside the dashed circle.</p>
+  <p>On a computer: drag to look, WASD to walk, F to switch.</p>
+</div>
+<div id="mode">Mode: Layered</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+
+const INK = '#1b1410';
+const LINE = 6; // outline width on art canvases
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType('local-floor');
+renderer.xr.setFoveation(0.5);
+document.body.appendChild(renderer.domElement);
+document.body.appendChild(VRButton.createButton(renderer, { optionalFeatures: ['hand-tracking', 'local-floor', 'bounded-floor'] }));
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#bfe3f5');
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.02, 400);
+const rig = new THREE.Group();          // moves in desktop mode
+rig.add(camera);
+scene.add(rig);
+camera.position.set(0, 1.6, 0);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(-3, 6, 2);
+scene.add(sun);
+
+// ---------- canvas art helpers ----------
+function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
+function tex(c) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
+function inked(ctx, fill, w = LINE) { ctx.fillStyle = fill; ctx.fill(); ctx.lineWidth = w; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke(); }
+function blob(ctx, x, y, r) { ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2); }
+
+function skyTexture() {
+  const [c, x] = makeCanvas(2048, 1024);
+  const g = x.createLinearGradient(0, 0, 0, 1024);
+  g.addColorStop(0, '#3f86d6'); g.addColorStop(0.42, '#8fcbf0'); g.addColorStop(0.5, '#fbe9cf'); g.addColorStop(1, '#fbe9cf');
+  x.fillStyle = g; x.fillRect(0, 0, 2048, 1024);
+  // clouds: soft white piles with thin ink
+  const rnd = mulberry(7);
+  for (let i = 0; i < 18; i++) {
+    const cx = rnd() * 2048, cy = 330 + rnd() * 110, s = 10 + rnd() * 14;
+    x.beginPath();
+    for (let k = 0; k < 6; k++) blob(x, cx + (k - 2.5) * s * 0.9, cy - Math.sin(k / 5 * Math.PI) * s * 0.8, s * (0.7 + rnd() * 0.5));
+    x.fillStyle = '#ffffff'; x.fill();
+    x.lineWidth = 2; x.strokeStyle = 'rgba(70,110,160,.45)'; x.stroke();
+  }
+  return tex(c);
+}
+
+function mountainTexture() {
+  const [c, x] = makeCanvas(2048, 512);
+  const rnd = mulberry(3);
+  const ridge = (base, amp, col, seedStep) => {
+    x.beginPath(); x.moveTo(0, 512);
+    let y = base;
+    for (let px = 0; px <= 2048; px += 32) { y = base - amp * (0.5 + 0.5 * Math.sin(px / 180 + seedStep) * Math.cos(px / 97)) - rnd() * 20; x.lineTo(px, y); }
+    x.lineTo(2048, 512); x.closePath();
+    inked(x, col, 4);
+  };
+  ridge(300, 220, '#9ab0d8', 1);
+  ridge(380, 140, '#7d97c4', 4);
+  ridge(450, 70, '#6f9b77', 2);
+  return tex(c);
+}
+
+function treeArt() {
+  const [c, x] = makeCanvas(512, 768);
+  x.beginPath(); x.moveTo(230, 760); x.lineTo(240, 470); x.lineTo(272, 470); x.lineTo(285, 760); x.closePath(); inked(x, '#8a5a3b');
+  x.beginPath(); blob(x, 256, 300, 170); blob(x, 150, 380, 110); blob(x, 362, 380, 110); blob(x, 256, 170, 120); inked(x, '#4f9a4a');
+  x.beginPath(); blob(x, 200, 250, 50); blob(x, 300, 330, 40); x.fillStyle = '#76c26a'; x.fill();
+  return tex(c);
+}
+
+function houseArt() {
+  const [c, x] = makeCanvas(768, 768);
+  x.beginPath(); x.rect(120, 330, 528, 420); inked(x, '#f3e4c8');
+  x.beginPath(); x.moveTo(80, 350); x.lineTo(384, 90); x.lineTo(688, 350); x.closePath(); inked(x, '#c9574a');
+  x.beginPath(); x.rect(330, 560, 108, 190); inked(x, '#7a4e33');
+  for (const wx of [180, 500]) { x.beginPath(); x.rect(wx, 430, 90, 90); inked(x, '#9fd3ef'); x.beginPath(); x.moveTo(wx + 45, 430); x.lineTo(wx + 45, 520); x.moveTo(wx, 475); x.lineTo(wx + 90, 475); x.lineWidth = 4; x.stroke(); }
+  return tex(c);
+}
+
+function characterArt() {
+  // original placeholder figure: traveler in a short cape
+  const [c, x] = makeCanvas(512, 1024);
+  x.beginPath(); x.moveTo(205, 1010); x.lineTo(215, 700); x.lineTo(245, 700); x.lineTo(248, 1010); x.closePath(); inked(x, '#3a3f5c');
+  x.beginPath(); x.moveTo(265, 1010); x.lineTo(268, 700); x.lineTo(298, 700); x.lineTo(308, 1010); x.closePath(); inked(x, '#3a3f5c');
+  x.beginPath(); x.moveTo(170, 720); x.lineTo(195, 420); x.quadraticCurveTo(256, 380, 318, 420); x.lineTo(342, 720); x.closePath(); inked(x, '#2f6f8f');
+  x.beginPath(); x.moveTo(190, 430); x.lineTo(130, 760); x.lineTo(256, 700); x.lineTo(382, 760); x.lineTo(322, 430); x.closePath(); inked(x, '#e0e6ee');
+  x.beginPath(); x.ellipse(256, 300, 92, 105, 0, 0, Math.PI * 2); inked(x, '#ffe0c7');
+  // hair
+  x.beginPath(); x.moveTo(160, 310); x.quadraticCurveTo(150, 170, 256, 180); x.quadraticCurveTo(370, 175, 352, 320);
+  x.lineTo(330, 250); x.lineTo(300, 290); x.lineTo(275, 235); x.lineTo(240, 285); x.lineTo(210, 240); x.lineTo(185, 300); x.closePath(); inked(x, '#4a3328');
+  // eyes
+  for (const ex of [222, 290]) { x.beginPath(); x.ellipse(ex, 318, 13, 20, 0, 0, Math.PI * 2); x.fillStyle = INK; x.fill(); x.beginPath(); blob(x, ex + 4, 310, 5); x.fillStyle = '#fff'; x.fill(); }
+  x.beginPath(); x.moveTo(246, 365); x.quadraticCurveTo(256, 372, 266, 365); x.lineWidth = 4; x.strokeStyle = INK; x.stroke();
+  return tex(c);
+}
+
+function grassArt() {
+  const [c, x] = makeCanvas(512, 256);
+  const rnd = mulberry(11);
+  for (let i = 0; i < 26; i++) {
+    const bx = 20 + rnd() * 470, h = 90 + rnd() * 140, lean = (rnd() - 0.5) * 70;
+    x.beginPath(); x.moveTo(bx - 9, 256); x.quadraticCurveTo(bx + lean * 0.3, 256 - h * 0.6, bx + lean, 256 - h); x.quadraticCurveTo(bx + lean * 0.3 + 6, 256 - h * 0.5, bx + 9, 256); x.closePath();
+    inked(x, i % 3 ? '#5fae4e' : '#7cc864', 4);
+  }
+  return tex(c);
+}
+
+function fenceArt() {
+  const [c, x] = makeCanvas(1024, 256);
+  x.beginPath(); x.rect(0, 60, 1024, 34); inked(x, '#b9834f');
+  x.beginPath(); x.rect(0, 140, 1024, 30); inked(x, '#b9834f');
+  for (let px = 40; px < 1024; px += 190) { x.beginPath(); x.rect(px, 30, 40, 226); inked(x, '#a06d3f'); }
+  return tex(c);
+}
+
+function groundTexture() {
+  const [c, x] = makeCanvas(1024, 1024);
+  x.fillStyle = '#86c46e'; x.fillRect(0, 0, 1024, 1024);
+  const rnd = mulberry(5);
+  for (let i = 0; i < 260; i++) { const px = rnd() * 1024, py = rnd() * 1024; x.beginPath(); x.moveTo(px, py); x.lineTo(px + 6, py - 14); x.moveTo(px + 8, py); x.lineTo(px + 14, py - 10); x.lineWidth = 3; x.strokeStyle = '#5f9e4f'; x.stroke(); }
+  const t = tex(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(30, 30); return t;
+}
+
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ---------- far layer ----------
+const sky = new THREE.Mesh(new THREE.SphereGeometry(180, 48, 24), new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, fog: false }));
+scene.add(sky);
+const mtnTex = mountainTexture(); mtnTex.wrapS = THREE.RepeatWrapping; mtnTex.repeat.set(3, 1);
+const mountains = new THREE.Mesh(new THREE.CylinderGeometry(120, 120, 36, 96, 1, true), new THREE.MeshBasicMaterial({ map: mtnTex, side: THREE.BackSide, transparent: true, alphaTest: 0.4 }));
+mountains.position.y = 14;
+scene.add(mountains);
+
+// ground (stays put in both modes)
+const ground = new THREE.Mesh(new THREE.CircleGeometry(170, 64), new THREE.MeshBasicMaterial({ map: groundTexture() }));
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// roaming circle (3 m radius), dashed
+const dash = new THREE.Group();
+for (let i = 0; i < 48; i += 2) {
+  const a0 = i / 48 * Math.PI * 2, a1 = (i + 1) / 48 * Math.PI * 2;
+  const seg = new THREE.Mesh(new THREE.RingGeometry(2.97, 3.03, 4, 1, a0, a1 - a0), new THREE.MeshBasicMaterial({ color: 0xfff6df, transparent: true, opacity: 0.8 }));
+  seg.rotation.x = -Math.PI / 2; seg.position.y = 0.01; dash.add(seg);
+}
+scene.add(dash);
+
+// ---------- drawn planes (billboards) ----------
+const billboards = [];
+function addCard(texture, w, h, x, z, layer, faceViewer = true) {
+  const geo = new THREE.PlaneGeometry(w, h); geo.translate(0, h / 2, 0);
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: texture, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide }));
+  m.position.set(x, 0, z);
+  m.userData = { home: new THREE.Vector3(x, 0, z), face: faceViewer, layer };
+  scene.add(m); billboards.push(m);
+  return m;
+}
+const T = { tree: treeArt(), house: houseArt(), hero: characterArt(), grass: grassArt(), fence: fenceArt() };
+
+// middle layer
+addCard(T.tree, 4, 6, -9, -14, 'mid'); addCard(T.tree, 3.4, 5.1, 7, -18, 'mid'); addCard(T.tree, 4.4, 6.6, 15, -6, 'mid');
+addCard(T.tree, 3.6, 5.4, -16, 4, 'mid'); addCard(T.tree, 4, 6, 4, 14, 'mid'); addCard(T.tree, 3, 4.5, -6, 12, 'mid');
+addCard(T.house, 6, 6, -2, -22, 'mid'); addCard(T.house, 5, 5, 18, -16, 'mid');
+const hero = addCard(T.hero, 0.85, 1.7, 1.6, -4.5, 'mid');
+// near layer
+addCard(T.grass, 1.2, 0.6, -1.2, -1.8, 'near'); addCard(T.grass, 1.0, 0.5, 1.8, -1.2, 'near'); addCard(T.grass, 1.1, 0.55, 0.4, 2.0, 'near');
+addCard(T.grass, 0.9, 0.45, -2.2, 0.6, 'near'); addCard(T.grass, 1.0, 0.5, 2.4, 1.6, 'near');
+const fence = addCard(T.fence, 4, 1, -0.5, -3.4, 'near', false);
+
+// ---------- flat / layered toggle ----------
+let flat = false;
+const FLAT_R = 60;
+const modeEl = document.getElementById('mode');
+function applyMode() {
+  for (const b of billboards) {
+    const h = b.userData.home;
+    const d = Math.hypot(h.x, h.z);
+    const k = flat ? FLAT_R / d : 1;
+    b.position.set(h.x * k, 0, h.z * k);
+    b.scale.setScalar(k);
+  }
+  modeEl.textContent = 'Mode: ' + (flat ? 'Flat (one backdrop)' : 'Layered');
+}
+function toggleMode() { flat = !flat; applyMode(); }
+
+// ---------- hands: live 3D with toon shading + ink outline ----------
+const gradient = new THREE.DataTexture(new Uint8Array([90, 90, 90, 255, 190, 190, 190, 255, 255, 255, 255, 255]), 3, 1, THREE.RGBAFormat);
+gradient.minFilter = gradient.magFilter = THREE.NearestFilter; gradient.needsUpdate = true;
+const skinMat = new THREE.MeshToonMaterial({ color: '#ffd9bd', gradientMap: gradient });
+const inkMat = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
+const OUT = 0.0028; // outline thickness in metres; geometry based, so both eyes agree
+
+const FINGERS = {
+  thumb: ['wrist', 'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip'],
+  index: ['wrist', 'index-finger-metacarpal', 'index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-distal', 'index-finger-tip'],
+  middle: ['wrist', 'middle-finger-metacarpal', 'middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate', 'middle-finger-phalanx-distal', 'middle-finger-tip'],
+  ring: ['wrist', 'ring-finger-metacarpal', 'ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate', 'ring-finger-phalanx-distal', 'ring-finger-tip'],
+  pinky: ['wrist', 'pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal', 'pinky-finger-tip'],
+};
+const sphereGeo = new THREE.SphereGeometry(1, 16, 12);
+const cylGeo = new THREE.CylinderGeometry(1, 1, 1, 14, 1, true);
+const palmGeo = new THREE.SphereGeometry(1, 20, 14);
+
+function makeHandRig() {
+  const g = new THREE.Group();
+  const joints = {}; const bones = [];
+  const allNames = new Set(Object.values(FINGERS).flat());
+  for (const n of allNames) {
+    const s = new THREE.Mesh(sphereGeo, skinMat), o = new THREE.Mesh(sphereGeo, inkMat);
+    g.add(s, o); joints[n] = { s, o };
+  }
+  for (const chain of Object.values(FINGERS)) for (let i = 1; i < chain.length - 0; i++) {
+    if (i === 1) continue; // wrist→metacarpal hidden inside palm
+    const s = new THREE.Mesh(cylGeo, skinMat), o = new THREE.Mesh(cylGeo, inkMat);
+    g.add(s, o); bones.push({ a: chain[i - 1], b: chain[i], s, o });
+  }
+  const palm = new THREE.Mesh(palmGeo, skinMat), palmO = new THREE.Mesh(palmGeo, inkMat);
+  g.add(palm, palmO);
+  g.visible = false; scene.add(g);
+  return { g, joints, bones, palm, palmO };
+}
+
+const up = new THREE.Vector3(0, 1, 0), va = new THREE.Vector3(), vb = new THREE.Vector3(), tmp = new THREE.Vector3(), q = new THREE.Quaternion();
+function updateHandRig(rigH, hand) {
+  const J = hand.joints;
+  if (!J || !J['wrist'] || !J['index-finger-tip'] || !J['wrist'].visible) { rigH.g.visible = false; return; }
+  rigH.g.visible = true;
+  for (const [n, m] of Object.entries(rigH.joints)) {
+    const j = J[n]; if (!j) continue;
+    j.getWorldPosition(va);
+    const r = Math.max(0.006, (j.jointRadius || 0.008) * 0.95);
+    m.s.position.copy(va); m.s.scale.setScalar(r);
+    m.o.position.copy(va); m.o.scale.setScalar(r + OUT);
+  }
+  for (const b of rigH.bones) {
+    J[b.a].getWorldPosition(va); J[b.b].getWorldPosition(vb);
+    const len = va.distanceTo(vb); tmp.addVectors(va, vb).multiplyScalar(0.5);
+    q.setFromUnitVectors(up, vb.clone().sub(va).normalize());
+    const r = Math.max(0.006, (J[b.b].jointRadius || 0.008) * 0.95);
+    b.s.position.copy(tmp); b.s.quaternion.copy(q); b.s.scale.set(r, len, r);
+    b.o.position.copy(tmp); b.o.quaternion.copy(q); b.o.scale.set(r + OUT, len, r + OUT);
+  }
+  // palm: ellipsoid spanning wrist → middle knuckle, index → pinky knuckle
+  const w = new THREE.Vector3(), mk = new THREE.Vector3(), ik = new THREE.Vector3(), pk = new THREE.Vector3();
+  J['wrist'].getWorldPosition(w); J['middle-finger-phalanx-proximal'].getWorldPosition(mk);
+  J['index-finger-phalanx-proximal'].getWorldPosition(ik); J['pinky-finger-phalanx-proximal'].getWorldPosition(pk);
+  const center = w.clone().lerp(mk, 0.55);
+  const yAxis = mk.clone().sub(w).normalize();
+  const xAxis = ik.clone().sub(pk).normalize();
+  const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
+  xAxis.crossVectors(yAxis, zAxis).normalize();
+  const basis = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+  const sx = ik.distanceTo(pk) * 0.62, sy = w.distanceTo(mk) * 0.55, sz = 0.016;
+  for (const [m, add] of [[rigH.palm, 0], [rigH.palmO, OUT]]) { m.position.copy(center); m.quaternion.setFromRotationMatrix(basis); m.scale.set(sx + add, sy + add, sz + add); }
+}
+
+const hands = [0, 1].map(i => { const h = renderer.xr.getHand(i); scene.add(h); return h; });
+const handRigs = hands.map(makeHandRig);
+
+// controllers: pinch or trigger toggles mode; simple outlined glove shown when holding controllers
+for (let i = 0; i < 2; i++) {
+  const c = renderer.xr.getController(i); scene.add(c);
+  c.addEventListener('selectstart', toggleMode);
+  const grip = renderer.xr.getControllerGrip(i); scene.add(grip);
+  const fist = new THREE.Mesh(new THREE.SphereGeometry(0.045, 20, 14), skinMat); fist.scale.set(1, 0.8, 1.3);
+  const fistO = new THREE.Mesh(fist.geometry, inkMat); fistO.scale.set(1.07, 0.87, 1.37);
+  const gl = new THREE.Group(); gl.add(fist, fistO); grip.add(gl);
+  grip.userData.glove = gl;
+  c.addEventListener('connected', e => { gl.visible = !e.data.hand; });
+}
+
+// ---------- desktop preview controls ----------
+let yaw = 0, pitch = -0.08, dragging = false;
+const keys = {};
+addEventListener('pointerdown', e => { if (e.target === renderer.domElement) dragging = true; });
+addEventListener('pointerup', () => dragging = false);
+addEventListener('pointermove', e => { if (!dragging) return; yaw -= e.movementX * 0.004; pitch = THREE.MathUtils.clamp(pitch - e.movementY * 0.004, -1.3, 1.3); });
+addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyF') toggleMode(); });
+addEventListener('keyup', e => keys[e.code] = false);
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+const params = new URLSearchParams(location.search);
+if (params.has('yaw')) yaw = parseFloat(params.get('yaw'));
+if (params.get('flat') === '1') flat = true;
+applyMode();
+if (params.has('pitch')) pitch = parseFloat(params.get('pitch'));
+window.__dbg = { scene, ground, dash, billboards };
+
+// ---------- loop ----------
+const clock = new THREE.Clock();
+const camPos = new THREE.Vector3();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  const xr = renderer.xr.isPresenting;
+  if (!xr) {
+    camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), s = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    if (f || s) {
+      const dir = new THREE.Vector3(s, 0, -f).applyAxisAngle(up, yaw).multiplyScalar(2.0 * dt);
+      rig.position.add(dir);
+      const r = Math.hypot(rig.position.x, rig.position.z); if (r > 3) rig.position.multiplyScalar(3 / r);
+    }
+    camera.getWorldPosition(camPos);
+  } else {
+    renderer.xr.getCamera().getWorldPosition(camPos);
+  }
+  // drawn planes turn to face the viewer so they don't read as cutouts
+  for (const b of billboards) {
+    if (!b.userData.face) continue;
+    b.rotation.y = Math.atan2(camPos.x - b.position.x, camPos.z - b.position.z);
+  }
+  // ambient sway on near grass (code moves existing art, never redraws it)
+  for (const b of billboards) if (b.userData.layer === 'near' && b.userData.face) b.rotation.z = Math.sin(t * 1.6 + b.userData.home.x) * 0.04;
+  hands.forEach((h, i) => updateHandRig(handRigs[i], h));
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
