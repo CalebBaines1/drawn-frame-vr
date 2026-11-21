@@ -70,13 +70,25 @@ function tex(c) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRG
 const skyTex = tex(ART.sky()); skyTex.generateMipmaps = false; skyTex.minFilter = THREE.LinearFilter;
 const sky = new THREE.Mesh(new THREE.SphereGeometry(180, 64, 32), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide }));
 scene.add(sky);
-const mtnTex = tex(ART.mountains()); mtnTex.wrapS = THREE.RepeatWrapping; mtnTex.generateMipmaps = false; mtnTex.minFilter = THREE.LinearFilter; // no seam line
+const mtnTex = tex(ART.composite(ART.mountains(), { rim: 0.6, grade: 0.5, glow: 0.8 })); mtnTex.wrapS = THREE.RepeatWrapping; mtnTex.generateMipmaps = false; mtnTex.minFilter = THREE.LinearFilter; // no seam line
 const mountains = new THREE.Mesh(new THREE.CylinderGeometry(120, 120, 30, 128, 1, true), new THREE.MeshBasicMaterial({ map: mtnTex, side: THREE.BackSide, transparent: true, alphaTest: 0.4 }));
 mountains.position.y = 11;
 scene.add(mountains);
 
+// atmosphere: haze that softens distant layers, a sun glow and a few light shafts
+scene.fog = new THREE.FogExp2(0xd6e6f5, 0.014);
+sky.material.fog = false; mountains.material.fog = false;
+const sunDir = new THREE.Vector3(-0.55, 0.42, -0.72).normalize();
+const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(ART.sunGlow()), blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true }));
+sunSprite.position.copy(sunDir).multiplyScalar(150); sunSprite.scale.setScalar(70); scene.add(sunSprite);
+const shaftTex = tex(ART.lightShaft());
+for (let i = 0; i < 5; i++) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(3 + i, 40), new THREE.MeshBasicMaterial({ map: shaftTex, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.18 + 0.04 * (i % 2), fog: false, side: THREE.DoubleSide }));
+  m.position.set(-14 + i * 4.5, 14, -26 + i * 2); m.rotation.z = 0.5; m.rotation.y = 0.3; m.userData.shaft = true; scene.add(m);
+}
+
 // ground with a dirt path running down toward the town
-const groundTex = tex(ART.ground()); groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping; groundTex.repeat.set(40, 40);
+const groundTex = tex(ART.ground()); groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping; groundTex.repeat.set(24, 24);
 const ground = new THREE.Mesh(new THREE.CircleGeometry(170, 64), new THREE.MeshBasicMaterial({ map: groundTex }));
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
@@ -104,7 +116,8 @@ function addCard(texture, w, h, x, z, layer, faceViewer = true) {
   scene.add(m); billboards.push(m);
   return m;
 }
-const T = { treeA: tex(ART.tree(1)), treeB: tex(ART.tree(7)), house: tex(ART.house(0)), houseBlue: tex(ART.house(1)), tower: tex(ART.tower()), grass: tex(ART.grass(11)), grass2: tex(ART.grass(23)), fence: tex(ART.fence()) };
+const C = (c, o) => tex(ART.composite(c, o));
+const T = { treeA: C(ART.tree(1)), treeB: C(ART.tree(7)), house: C(ART.house(0)), houseBlue: C(ART.house(1)), tower: C(ART.tower()), grass: C(ART.grass(11), { glow: 0.6 }), grass2: C(ART.grass(23), { glow: 0.6 }), fence: C(ART.fence(), { rimWidth: 6 }) };
 
 // middle layer: a small town below the hill, trees around
 addCard(T.house, 6, 6, -5, -24, 'mid'); addCard(T.houseBlue, 5.5, 5.5, 4.5, -27, 'mid'); addCard(T.tower, 4, 8.8, 0, -32, 'mid');
@@ -114,7 +127,10 @@ addCard(T.treeB, 3.8, 5.3, -16, 4, 'mid'); addCard(T.treeA, 4.2, 5.9, 5, 14, 'mi
 addCard(T.treeA, 3.6, 5.1, 18, 9, 'mid'); addCard(T.treeB, 4, 5.6, -20, -8, 'mid');
 
 // the character: one canvas, redrawn by code as her pose changes
-const heroCanvas = ART.character(null, ART.POSES.idle);
+const heroRaw = ART.character(null, ART.POSES.idle);
+const heroCanvas = ART.canvas(heroRaw.width, heroRaw.height);
+function paintHero() { const c = ART.composite(heroRaw, { rimWidth: 6, rim: 0.6 }); const g = heroCanvas.getContext('2d'); g.clearRect(0, 0, heroCanvas.width, heroCanvas.height); g.drawImage(c, 0, 0); }
+paintHero();
 const heroTex = tex(heroCanvas);
 const hero = addCard(heroTex, 0.9, 1.8, 1.6, -4.2, 'mid');
 
@@ -265,7 +281,7 @@ function updateHero(t, dt) {
   // anime-style "on twos": redraw her at 12 fps while head tracking stays at full rate
   const frame = Math.floor(t * 12);
   const key = frame + JSON.stringify(pose.mouth) + heroState.mood + blink;
-  if (key !== heroState.lastKey) { heroState.lastKey = key; ART.character(heroCanvas, pose); heroTex.needsUpdate = true; }
+  if (key !== heroState.lastKey) { heroState.lastKey = key; ART.character(heroRaw, pose); paintHero(); heroTex.needsUpdate = true; }
 }
 
 // ---------- loop ----------

@@ -24,8 +24,9 @@ import * as A from './art.js';
 const add=(id,c,cap,w)=>{const f=document.createElement('figure');f.className='check';c.style.width=w+'px';f.append(c);const fc=document.createElement('figcaption');fc.textContent=cap;f.append(fc);document.getElementById(id).append(f);};
 const s=A.sky(); const sc=A.canvas(4096,1100); sc.getContext('2d').drawImage(s,0,0); sc.getContext('2d').drawImage(A.mountains(),0,1100-768,4096,768);
 add('far',sc,'Sky and distant mountains with castle (wraps around you)',1000);
-add('mid',A.tree(1),'Tree',150);add('mid',A.tree(7),'Tree variant',150);add('mid',A.house(0),'House',200);add('mid',A.house(1),'House, blue roof',200);add('mid',A.tower(),'Clock tower',110);
-add('near',A.grass(11),'Grass and flowers',260);add('near',A.fence(),'Stone wall',420);
-for(const [n,p] of Object.entries(A.POSES)) add('char',A.character(null,p),n,150);
-add('char',A.character(null,{look:{x:1,y:0},mouth:'smile'}),'eyes following you',150);
+const K=A.composite;
+add('mid',K(A.tree(1)),'Tree',150);add('mid',K(A.tree(7)),'Tree variant',150);add('mid',K(A.house(0)),'House',200);add('mid',K(A.house(1)),'House, blue roof',200);add('mid',K(A.tower()),'Clock tower',110);
+add('near',K(A.grass(11),{glow:.6}),'Grass and flowers',260);add('near',K(A.fence(),{rimWidth:6}),'Stone wall',420);
+for(const [n,p] of Object.entries(A.POSES)) add('char',K(A.character(null,p),{rimWidth:6,rim:.6}),n,150);
+add('char',K(A.character(null,{look:{x:1,y:0},mouth:'smile'}),{rimWidth:6,rim:.6}),'eyes following you',150);
 </script></body></html>
